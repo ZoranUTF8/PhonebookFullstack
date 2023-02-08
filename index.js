@@ -13,6 +13,12 @@ transforms it into a JavaScript object and then attaches it to the body
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(cors());
+/*
+Now HTTP GET requests to the address www.serversaddress.com/index.html
+or www.serversaddress.com will show the React frontend. GET requests
+to the address www.serversaddress.com/api/notes will be handled by the backend's code.
+*/
+app.use(express.static("build"));
 
 //! Middleware
 const requestLogger = (request, response, next) => {
