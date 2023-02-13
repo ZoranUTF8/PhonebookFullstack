@@ -1,11 +1,18 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const morgan = require("morgan");
 const cors = require("cors");
+const Person = require("./Models/Person");
+//? Middleware imports
+const MongooseErrorHandler = require("./Middleware/Errors/MongooseErrors");
 
-const { v4: uuidv4 } = require("uuid");
-let phonebookData = require("./data/data.json");
-
+/*
+Now HTTP GET requests to the address www.serversaddress.com/index.html
+or www.serversaddress.com will show the React frontend. GET requests
+to the address www.serversaddress.com/api/notes will be handled by the backend's code.
+*/
+app.use(express.static("build"));
 /*
 The json-parser functions so that it takes the JSON data of a request, 
 transforms it into a JavaScript object and then attaches it to the body
@@ -13,27 +20,10 @@ transforms it into a JavaScript object and then attaches it to the body
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(cors());
-/*
-Now HTTP GET requests to the address www.serversaddress.com/index.html
-or www.serversaddress.com will show the React frontend. GET requests
-to the address www.serversaddress.com/api/notes will be handled by the backend's code.
-*/
-app.use(express.static("build"));
-
-//! Middleware
-const requestLogger = (request, response, next) => {
-  console.log("Method:", request.method);
-  console.log("Path:  ", request.path);
-  console.log("Body:  ", request.body);
-  console.log("---");
-  next();
-};
 
 const unknownEndpoint = (request, response) => {
   response.status(404).send({ error: "unknown endpoint" });
 };
-
-app.use(requestLogger);
 
 //! REQUEST HANDLERS
 
@@ -41,66 +31,89 @@ app.use(requestLogger);
 app.get("/", (req, res) => res.status(200).send("Hello From the server"));
 //* Get all persons
 app.get("/api/persons", (req, res) => {
-  res.status(200).json(phonebookData);
+  Person.find({}).then((persons) => {
+    res.json(persons);
+  });
 });
 
 //* Get single person
-app.get("/api/persons/:id", (req, res) => {
-  const person = phonebookData.find(
-    (person) => person.id === Number(req.params.id)
-  );
-
-  if (person) {
-    res.status(200).send(person);
-  } else {
-    res
-      .status(404)
-      .send({ message: `No person found with id ${req.params.id}` });
-  }
+app.get("/api/persons/:id", (req, res, next) => {
+  Person.findById(req.params.id)
+    .then((person) => {
+      console.log(person);
+      if (person) {
+        res.status(200).json({
+          status: "success",
+          message: `Person with ${req.params.id} found`,
+          data: person,
+        });
+      } else {
+        res.status(404).json({
+          status: "fail",
+          message: `No person with ${req.params.id} found`,
+        });
+      }
+    })
+    .catch((error) => {
+      next(error);
+    });
 });
 
-//* Delete single note
-app.delete("/api/persons/:id", (req, res) => {
-  const personFound = phonebookData.find(
-    (person) => person.id === Number(req.params.id)
-  );
-
-  if (personFound) {
-    phonebookData = phonebookData.filter(
-      (person) => person.id !== personFound.id
-    );
-    res.status(200).send({ message: `Person with ${req.params.id} deleted.` });
-  } else {
-    res.status(404).send({ message: `No person with ${req.params.id} found` });
-  }
+//* Delete single person
+app.delete("/api/persons/:id", (req, res, next) => {
+  Person.findByIdAndRemove(req.params.id)
+    .then((person) => {
+      if (person) {
+        res
+          .status(200)
+          .json({ message: `Person with id ${person.id} was removed.` });
+      } else {
+        res
+          .status(404)
+          .json({ message: `No person with id ${req.params.id} was found.` });
+      }
+    })
+    .catch((error) => next(error));
 });
 
 //* Add new person
 app.post("/api/persons", (req, res) => {
-  const { name, number } = req.body;
-
-  if (!name || !number) {
-    res.status(404).send({ error: "Missing vallues." });
-  }
-
-  const isNameUsed = checkNameUnique(phonebookData, name);
-
-  if (isNameUsed) {
-    res.status(404).send({ error: "name must be unique" });
-  } else {
-    const newPerson = {
-      id: generateUniqueId(),
-      ...req.body,
-    };
-
-    phonebookData = phonebookData.concat(newPerson);
-
-    res.status(200).send({
-      message: `Person by name ${newPerson.name} added successfully.`,
-      data: newPerson,
+  if (req.body.name && req.body.number) {
+    const newPerson = new Person({
+      name: req.body.name,
+      number: req.body.number,
     });
+
+    newPerson.save().then((person) => {
+      console.log(person);
+      res
+        .status(200)
+        .json({ message: `Person added under id `, data: newPerson });
+    });
+  } else {
+    res.status(400).json({ error: "Bad request, missing content" });
   }
+
+  // ! Check later for the above
+  // const isNameUsed = checkNameUnique(phonebookData, name);
+
+  // if (isNameUsed) {
+  //   res.status(404).send({ error: "name must be unique" });
+  // } else {
+  //   const newPerson = {
+  //     id: generateUniqueId(),
+  //     ...req.body,
+  //   };
+
+  // const checkNameUnique = (arr, nameToCheck) => {
+  //   let nameFound = arr.some(function (entry) {
+  //     return entry.name === nameToCheck;
+  //   });
+
+  //   return nameFound ? true : false;
+  // };
 });
+
 //* Get phonebook info
 app.get("/info", (req, res) => {
   res
@@ -112,17 +125,22 @@ app.get("/info", (req, res) => {
     );
 });
 
-const checkNameUnique = (arr, nameToCheck) => {
-  let nameFound = arr.some(function (entry) {
-    return entry.name === nameToCheck;
-  });
+//* Update phonebook entry
+app.put("/api/persons/:id", (req, res, next) => {
+  console.log("ola");
+  const body = req.body;
 
-  return nameFound ? true : false;
-};
+  const person = {
+    name: body.name,
+    number: body.number,
+  };
 
-const generateUniqueId = () => {
-  return uuidv4();
-};
+  Person.findByIdAndUpdate(req.params.id, person, { new: true })
+    .then((updatedPerson) => {
+      res.json(updatedPerson);
+    })
+    .catch((error) => next(error));
+});
 
 //! START EXPRESS SERVER
 
@@ -131,4 +149,7 @@ app.listen(PORT, (req, res) => {
   console.log(`Server running at ${PORT}`);
 });
 
+//! handler of requests with unknown endpoint
 app.use(unknownEndpoint);
+//! Note that the error-handling middleware has to be the last loaded middleware!
+app.use(MongooseErrorHandler);
