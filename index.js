@@ -40,7 +40,6 @@ app.get("/api/persons", (req, res) => {
 app.get("/api/persons/:id", (req, res, next) => {
   Person.findById(req.params.id)
     .then((person) => {
-      console.log(person);
       if (person) {
         res.status(200).json({
           status: "success",
@@ -77,57 +76,43 @@ app.delete("/api/persons/:id", (req, res, next) => {
 });
 
 //* Add new person
-app.post("/api/persons", (req, res) => {
-  if (req.body.name && req.body.number) {
-    const newPerson = new Person({
-      name: req.body.name,
-      number: req.body.number,
+app.post("/api/persons", (req, res, next) => {
+  const newPerson = new Person({
+    name: req.body.name,
+    number: req.body.number,
+  });
+
+  newPerson
+    .save()
+    .then((person) => {
+      res.status(200).json({
+        message: `Person added under id ${person.id}`,
+        data: person,
+      });
+    })
+    .catch((err) => {
+      next(err);
     });
-
-    newPerson.save().then((person) => {
-      console.log(person);
-      res
-        .status(200)
-        .json({ message: `Person added under id `, data: newPerson });
-    });
-  } else {
-    res.status(400).json({ error: "Bad request, missing content" });
-  }
-
-  // ! Check later for the above
-  // const isNameUsed = checkNameUnique(phonebookData, name);
-
-  // if (isNameUsed) {
-  //   res.status(404).send({ error: "name must be unique" });
-  // } else {
-  //   const newPerson = {
-  //     id: generateUniqueId(),
-  //     ...req.body,
-  //   };
-
-  // const checkNameUnique = (arr, nameToCheck) => {
-  //   let nameFound = arr.some(function (entry) {
-  //     return entry.name === nameToCheck;
-  //   });
-
-  //   return nameFound ? true : false;
-  // };
 });
 
 //* Get phonebook info
 app.get("/info", (req, res) => {
-  res
-    .status(200)
-    .send(
-      `Phonebook contains info for ${
-        phonebookData.length
-      } people\n Current date: ${new Date()}`
-    );
+  let personsData = [];
+
+  Person.find({}).then((persons) => {
+    personsData = persons;
+    res
+      .status(200)
+      .send(
+        `Phonebook contains info for ${
+          personsData.length
+        } people\n Current date: ${new Date()}`
+      );
+  });
 });
 
 //* Update phonebook entry
 app.put("/api/persons/:id", (req, res, next) => {
-  console.log("ola");
   const body = req.body;
 
   const person = {
@@ -135,7 +120,10 @@ app.put("/api/persons/:id", (req, res, next) => {
     number: body.number,
   };
 
-  Person.findByIdAndUpdate(req.params.id, person, { new: true })
+  Person.findByIdAndUpdate(req.params.id, person, {
+    new: true,
+    runValidators: true,
+  })
     .then((updatedPerson) => {
       res.json(updatedPerson);
     })
